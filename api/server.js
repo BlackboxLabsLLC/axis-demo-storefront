@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import pg from 'pg';
 import { createClient } from 'redis';
+import { migrate } from './migrate.js';
 
 const port = Number(process.env.PORT ?? 4000);
 const databaseUrl = process.env.DATABASE_URL;
@@ -22,57 +23,6 @@ if (redisUrl) {
 	});
 } else {
 	console.warn('REDIS_URL is not set; the catalog will not be cached');
-}
-
-const CATALOG = [
-	['espresso-beans', 'Espresso beans, 1 kg', 2400, 'Dark roast, chocolate and cherry notes.'],
-	['pour-over-kit', 'Pour-over kit', 3900, 'Ceramic dripper, 100 filters, and a glass carafe.'],
-	['burr-grinder', 'Burr grinder', 12900, 'Forty grind settings, quiet motor.'],
-	['travel-mug', 'Travel mug', 1800, 'Keeps coffee hot for six hours.'],
-	['milk-frother', 'Milk frother', 2900, 'Handheld, rechargeable, two speeds.'],
-	['decaf-blend', 'Decaf blend, 500 g', 1600, 'Swiss-water processed, caramel finish.'],
-];
-
-async function migrate() {
-	await db.query(`
-		create table if not exists products (
-			sku text primary key,
-			name text not null,
-			price_cents integer not null check (price_cents > 0),
-			description text not null,
-			stock integer not null default 100
-		);
-		create table if not exists orders (
-			id bigserial primary key,
-			email text not null,
-			status text not null default 'paid'
-				check (status in ('paid', 'packing', 'shipped')),
-			total_cents integer not null,
-			created_at timestamptz not null default now(),
-			updated_at timestamptz not null default now()
-		);
-		create table if not exists order_items (
-			order_id bigint not null references orders(id) on delete cascade,
-			sku text not null references products(sku),
-			quantity integer not null check (quantity > 0),
-			price_cents integer not null,
-			primary key (order_id, sku)
-		);
-		create table if not exists order_events (
-			id bigserial primary key,
-			order_id bigint not null references orders(id) on delete cascade,
-			message text not null,
-			created_at timestamptz not null default now()
-		);
-		create index if not exists orders_status_idx on orders (status, created_at);
-	`);
-	for (const [sku, name, price, description] of CATALOG) {
-		await db.query(
-			`insert into products (sku, name, price_cents, description)
-			 values ($1, $2, $3, $4) on conflict (sku) do nothing`,
-			[sku, name, price, description],
-		);
-	}
 }
 
 async function products() {
@@ -204,7 +154,8 @@ const server = createServer(async (request, response) => {
 	}
 });
 
-await migrate();
+// Axis gives migrations their own connection (MIGRATION_DATABASE_URL, migration@1 profile).
+await migrate(process.env.MIGRATION_DATABASE_URL ?? databaseUrl);
 server.listen(port, '0.0.0.0', () => console.log(`storefront api listening on :${port}`));
 
 for (const signal of ['SIGTERM', 'SIGINT']) {

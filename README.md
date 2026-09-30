@@ -9,13 +9,16 @@ deployable folder with its own `package.json`, the way a typical small team woul
 | API | `api/` | JSON API for products and orders; caches the catalog in Redis | Postgres (`DATABASE_URL`), Redis (`REDIS_URL`) |
 | Order worker | `worker/` | Picks up paid orders, "fulfils" them, records shipping events | Postgres (`DATABASE_URL`) |
 
-The API creates its schema and seeds a catalog on first start, so a fresh database works without a
-manual migration step.
+The API runs `migrate.js` on start: it creates the schema and seeds the catalog, so a fresh
+database works without a manual step.
 
 ## Environment
 
 - `PORT` is provided by the platform.
 - `DATABASE_URL`, `REDIS_URL` come from Axis connections to Postgres and Redis.
+- `MIGRATION_DATABASE_URL` (API only) comes from a second Postgres connection with the
+  `migration@1` profile. Schema changes run as the database owner; the runtime connection can
+  only read and write rows.
 - `API_URL` points the storefront at the API's private address.
 
 ## Run locally
